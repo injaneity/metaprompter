@@ -1,0 +1,23 @@
+github:
+  # Optional: auto-detected from current git remote origin if empty.
+  repo:
+  labels:
+    todo: todo
+    in_progress: in_progress
+    blocked: blocked
+    done: done
+frameworks:
+  default: codex
+  enabled:
+    - codex
+    - opencode
+    - claude
+commands:
+  source_dir: commands
+  generated_dir: .metaprompter/bin
+execute:
+  retry_attempts: 1
+  allow_subissue_fanout: true
+checks:
+  test_cmd:
+  lint_cmd:
