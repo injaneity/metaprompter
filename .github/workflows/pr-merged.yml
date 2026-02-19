@@ -22,7 +22,6 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           MERGED_BY: ${{ github.event.pull_request.merged_by.login }}
         run: |
-          # Match: Resolves #N, Closes #N, Fixes #N (case-insensitive)
           ISSUE_NUMBER=$(echo "$PR_BODY" | grep -ioP '(resolves|closes|fixes)\s+#\K[0-9]+' | head -1)
           if [ -z "$ISSUE_NUMBER" ]; then
             echo "No linked issue found in PR body. Skipping."
@@ -42,43 +41,32 @@ jobs:
           ISSUE_NUMBER: ${{ steps.extract.outputs.issue_number }}
           PR_URL: ${{ steps.extract.outputs.pr_url }}
           MERGED_BY: ${{ steps.extract.outputs.merged_by }}
+          REPO: ${{ github.repository }}
         run: |
           TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-          # Update labels: add done, remove awaiting_review and in_progress
           gh issue edit "$ISSUE_NUMBER" \
             --add-label "done" \
             --remove-label "awaiting_review" \
             --remove-label "in_progress" \
-            --repo "${{ github.repository }}" || true
+            --repo "$REPO" || true
 
-          # Close the issue
-          gh issue close "$ISSUE_NUMBER" \
-            --repo "${{ github.repository }}" || true
+          gh issue close "$ISSUE_NUMBER" --repo "$REPO" || true
 
-          # Post DONE event comment
-          gh issue comment "$ISSUE_NUMBER" \
-            --repo "${{ github.repository }}" \
-            --body "[metaprompter] DONE — issue #${ISSUE_NUMBER}
+          BODY=$(printf '[metaprompter] DONE — issue #%s\n\n<!-- metaprompter-event\ntype: DONE\nissue: %s\ntimestamp: %s\npr_url: %s\nmerged_by: %s\n-->' \
+            "$ISSUE_NUMBER" "$ISSUE_NUMBER" "$TIMESTAMP" "$PR_URL" "$MERGED_BY")
 
-<!-- metaprompter-event
-type: DONE
-issue: ${ISSUE_NUMBER}
-timestamp: ${TIMESTAMP}
-pr_url: ${PR_URL}
-merged_by: ${MERGED_BY}
--->"
+          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "$BODY"
 
       - name: Unblock dependents
         if: steps.extract.outputs.issue_number != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RESOLVED_ISSUE: ${{ steps.extract.outputs.issue_number }}
+          REPO: ${{ github.repository }}
         run: |
           TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          REPO="${{ github.repository }}"
 
-          # Find all open issues that mention "depends on #RESOLVED_ISSUE"
           DEPENDENT_ISSUES=$(gh issue list \
             --state open \
             --json number,body,labels \
@@ -92,7 +80,6 @@ merged_by: ${MERGED_BY}
             exit 0
           fi
 
-          # Get all closed issue numbers for dep resolution check
           CLOSED_ISSUES=$(gh issue list \
             --state closed \
             --json number \
@@ -103,22 +90,14 @@ merged_by: ${MERGED_BY}
           for DEP_ISSUE in $DEPENDENT_ISSUES; do
             echo "Checking dependent issue #$DEP_ISSUE..."
 
-            # Get this issue's body and labels
-            ISSUE_DATA=$(gh issue view "$DEP_ISSUE" \
-              --repo "$REPO" \
-              --json body,labels)
+            ISSUE_BODY=$(gh issue view "$DEP_ISSUE" --repo "$REPO" --json body --jq '.body')
 
-            ISSUE_BODY=$(echo "$ISSUE_DATA" | jq -r '.body')
-
-            # Extract all dep numbers from "depends on #N, #M, ..."
             DEP_NUMBERS=$(echo "$ISSUE_BODY" | grep -ioP 'depends on\s+\K[#0-9, ]+' | grep -oP '[0-9]+')
 
             ALL_RESOLVED=true
             for DEP_NUM in $DEP_NUMBERS; do
-              # Check if dep is in closed issues list
               IS_CLOSED=$(echo "$CLOSED_ISSUES" | jq --argjson n "$DEP_NUM" 'map(select(. == $n)) | length > 0')
               if [ "$IS_CLOSED" != "true" ]; then
-                # Also check if it has 'done' label while still open
                 HAS_DONE=$(gh issue view "$DEP_NUM" \
                   --repo "$REPO" \
                   --json labels \
@@ -139,15 +118,9 @@ merged_by: ${MERGED_BY}
                 --remove-label "blocked" \
                 --repo "$REPO" || true
 
-              gh issue comment "$DEP_ISSUE" \
-                --repo "$REPO" \
-                --body "[metaprompter] UNBLOCKED — issue #${DEP_ISSUE}
+              BODY=$(printf '[metaprompter] UNBLOCKED — issue #%s\n\n<!-- metaprompter-event\ntype: UNBLOCKED\nissue: %s\ntimestamp: %s\nresolved_dep: %s\n-->' \
+                "$DEP_ISSUE" "$DEP_ISSUE" "$TIMESTAMP" "$RESOLVED_ISSUE")
 
-<!-- metaprompter-event
-type: UNBLOCKED
-issue: ${DEP_ISSUE}
-timestamp: ${TIMESTAMP}
-resolved_dep: ${RESOLVED_ISSUE}
--->"
+              gh issue comment "$DEP_ISSUE" --repo "$REPO" --body "$BODY"
             fi
           done
