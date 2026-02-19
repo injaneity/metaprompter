@@ -1,23 +1,36 @@
 github:
-  # Optional: auto-detected from current git remote origin if empty.
+  # Optional: auto-detected from git remote origin if empty.
   repo:
   labels:
     todo: todo
     in_progress: in_progress
     blocked: blocked
     done: done
+    awaiting_review: awaiting_review
+
+routing:
+  # label → prompt template mapping (first match wins)
+  # Add entries here to route issues by label to specialized worker prompts.
+  frontend:
+    prompt: prompts/execute/worker-frontend.md
+  bug:
+    prompt: prompts/execute/worker-bugfix.md
+
 frameworks:
-  default: codex
+  default: claude
   enabled:
+    - claude
     - codex
     - opencode
-    - claude
-commands:
-  source_dir: commands
-  generated_dir: .metaprompter/bin
+
 execute:
+  max_concurrent: 1
   retry_attempts: 1
   allow_subissue_fanout: true
+
+circuit_breaker:
+  failure_threshold: 3
+
 checks:
   test_cmd:
   lint_cmd:
